@@ -33,6 +33,12 @@ export default defineConfig({
         label: "Posts",
         path: "content/posts",
         format: "mdx",
+        defaultItem: () => {
+          return {
+            // When a new post is created the title field will be set to "New post"
+            title: "Jack testing default item",
+          };
+        },
         fields: [
           {
             type: "string",
