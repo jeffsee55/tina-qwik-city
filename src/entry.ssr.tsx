@@ -16,6 +16,7 @@ import {
 } from "@builder.io/qwik/server";
 import { manifest } from "@qwik-client-manifest";
 import Root from "./root";
+import { isDev } from "@builder.io/qwik/build";
 
 export default function (opts: RenderToStreamOptions) {
   return renderToStream(<Root />, {
@@ -29,5 +30,15 @@ export default function (opts: RenderToStreamOptions) {
     serverData: {
       ...opts.serverData,
     },
+    ...(!isDev
+      ? {
+          prefetchStrategy: {
+            implementation: {
+              linkInsert: "html-append",
+              linkRel: "modulepreload",
+            },
+          },
+        }
+      : {}),
   });
 }
