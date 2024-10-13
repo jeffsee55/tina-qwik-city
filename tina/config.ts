@@ -39,6 +39,11 @@ export default defineConfig({
             title: "Jack testing default item",
           };
         },
+        ui: {
+          router: () => {
+            return "/";
+          },
+        },
         fields: [
           {
             type: "string",
