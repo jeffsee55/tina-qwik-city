@@ -4,7 +4,9 @@ import {
   useComputed$,
   type Signal,
 } from "@builder.io/qwik";
-import deepClone from "lodash.clonedeep";
+
+export const fastClone = <T,>(obj: T): T | undefined =>
+  obj === undefined ? undefined : JSON.parse(JSON.stringify(obj));
 
 export function useTina<T extends object>(props: {
   query: string;
@@ -19,17 +21,67 @@ export function useTina<T extends object>(props: {
 
   const data = useSignal<T>(props.data);
   const isClient = useSignal(false);
+
   const quickEditEnabled = useSignal(false);
   const isInTinaIframe = useSignal(false);
 
+  // eslint-disable-next-line qwik/no-use-visible-task
   useVisibleTask$(({ track }) => {
     track(() => id.value);
 
     isClient.value = true;
     data.value = props.data;
   });
+  // eslint-disable-next-line qwik/no-use-visible-task
   useVisibleTask$(({ track, cleanup }) => {
     track(() => quickEditEnabled.value);
+
+    function mouseDownHandler(e: MouseEvent) {
+      if (!(e.target instanceof Element)) return;
+
+      const attributeNames = e.target.getAttributeNames();
+      // If multiple attributes start with data-tina-field, only the first is used
+      const tinaAttribute = attributeNames.find((name) =>
+        name.startsWith("data-tina-field")
+      );
+      let fieldName;
+      if (tinaAttribute) {
+        e.preventDefault();
+        e.stopPropagation();
+        fieldName = e.target.getAttribute(tinaAttribute);
+      } else {
+        const ancestor = e.target.closest(
+          "[data-tina-field], [data-tina-field-overlay]"
+        );
+        if (ancestor) {
+          const attributeNames = ancestor.getAttributeNames();
+          const tinaAttribute = attributeNames.find((name) =>
+            name.startsWith("data-tina-field")
+          );
+          if (tinaAttribute) {
+            e.preventDefault();
+            e.stopPropagation();
+            fieldName = ancestor.getAttribute(tinaAttribute);
+          }
+        }
+      }
+      if (fieldName) {
+        if (isInTinaIframe.value) {
+          parent.postMessage(
+            { type: "field:selected", fieldName: fieldName },
+            window.location.origin
+          );
+        } else {
+          // if (preview?.redirect) {
+          //   const tinaAdminBasePath = preview.redirect.startsWith('/')
+          //     ? preview.redirect
+          //     : `/${preview.redirect}`
+          //   const tinaAdminPath = `${tinaAdminBasePath}/index.html#/~${window.location.pathname}?active-field=${fieldName}`
+          //   window.location.assign(tinaAdminPath)
+          // }
+        }
+      }
+    }
 
     if (quickEditEnabled.value) {
       const style = document.createElement("style");
@@ -68,50 +120,6 @@ export function useTina<T extends object>(props: {
       document.head.appendChild(style);
       document.body.classList.add("__tina-quick-editing-enabled");
 
-      function mouseDownHandler(e) {
-        const attributeNames = e.target.getAttributeNames();
-        // If multiple attributes start with data-tina-field, only the first is used
-        const tinaAttribute = attributeNames.find((name) =>
-          name.startsWith("data-tina-field"),
-        );
-        let fieldName;
-        if (tinaAttribute) {
-          e.preventDefault();
-          e.stopPropagation();
-          fieldName = e.target.getAttribute(tinaAttribute);
-        } else {
-          const ancestor = e.target.closest(
-            "[data-tina-field], [data-tina-field-overlay]",
-          );
-          if (ancestor) {
-            const attributeNames = ancestor.getAttributeNames();
-            const tinaAttribute = attributeNames.find((name) =>
-              name.startsWith("data-tina-field"),
-            );
-            if (tinaAttribute) {
-              e.preventDefault();
-              e.stopPropagation();
-              fieldName = ancestor.getAttribute(tinaAttribute);
-            }
-          }
-        }
-        if (fieldName) {
-          if (isInTinaIframe.value) {
-            parent.postMessage(
-              { type: "field:selected", fieldName: fieldName },
-              window.location.origin,
-            );
-          } else {
-            // if (preview?.redirect) {
-            //   const tinaAdminBasePath = preview.redirect.startsWith('/')
-            //     ? preview.redirect
-            //     : `/${preview.redirect}`
-            //   const tinaAdminPath = `${tinaAdminBasePath}/index.html#/~${window.location.pathname}?active-field=${fieldName}`
-            //   window.location.assign(tinaAdminPath)
-            // }
-          }
-        }
-      }
       document.addEventListener("click", mouseDownHandler, true);
       cleanup(() => {
         document.removeEventListener("click", mouseDownHandler, true);
@@ -121,16 +129,17 @@ export function useTina<T extends object>(props: {
     }
   });
 
+  // eslint-disable-next-line qwik/no-use-visible-task
   useVisibleTask$(({ cleanup }) => {
     // const simplifiedProps = JSON.stringify({...props});
     // const simplifiedProps = JSON.stringify(props);
 
     //? Note there seems to be a bug with the props we are sending to the parent window
-    const clonedProps = deepClone(props);
+    const clonedProps = fastClone(props);
 
     parent.postMessage(
       { type: "open", ...clonedProps, id: id.value },
-      window.location.origin,
+      window.location.origin
     );
 
     window.addEventListener("message", (event) => {
@@ -146,12 +155,12 @@ export function useTina<T extends object>(props: {
         if (anyTinaField) {
           parent.postMessage(
             { type: "quick-edit", value: true },
-            window.location.origin,
+            window.location.origin
           );
         } else {
           parent.postMessage(
             { type: "quick-edit", value: false },
-            window.location.origin,
+            window.location.origin
           );
         }
       }
@@ -160,7 +169,7 @@ export function useTina<T extends object>(props: {
     cleanup(() => {
       window.parent.postMessage(
         { type: "close", id: id.value },
-        window.location.origin,
+        window.location.origin
       );
     });
   });
@@ -210,7 +219,7 @@ export const tinaField = <
 >(
   object: T,
   property?: keyof Omit<NonNullable<T>, "__typename" | "_sys">,
-  index?: number,
+  index?: number
 ) => {
   if (!object) {
     return "";
@@ -218,18 +227,18 @@ export const tinaField = <
   if (object._content_source) {
     if (!property) {
       return [
-        object._content_source?.queryId,
+        object._content_source.queryId,
         object._content_source.path.join("."),
       ].join("---");
     }
     if (typeof index === "number") {
       return [
-        object._content_source?.queryId,
+        object._content_source.queryId,
         [...object._content_source.path, property, index].join("."),
       ].join("---");
     }
     return [
-      object._content_source?.queryId,
+      object._content_source.queryId,
       [...object._content_source.path, property].join("."),
     ].join("---");
   }
@@ -239,7 +248,7 @@ export const tinaField = <
 export const addMetadata = <T extends object>(
   id: string,
   object: T & { type?: string; _content_source?: unknown },
-  path: (string | number)[],
+  path: (string | number)[]
 ): T | undefined => {
   Object.entries(object).forEach(([key, value]) => {
     if (Array.isArray(value)) {
