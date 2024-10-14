@@ -4,6 +4,7 @@ import {
   useComputed$,
   type Signal,
 } from "@builder.io/qwik";
+import deepClone from "lodash.clonedeep";
 
 export function useTina<T extends object>(props: {
   query: string;
@@ -14,7 +15,6 @@ export function useTina<T extends object>(props: {
     query: props.query,
     variables: props.variables,
   });
-
   const id = useComputed$(() => hashFromQuery(stringifiedQuery));
 
   const data = useSignal<T>(props.data);
@@ -22,16 +22,15 @@ export function useTina<T extends object>(props: {
   const quickEditEnabled = useSignal(false);
   const isInTinaIframe = useSignal(false);
 
-  // eslint-disable-next-line qwik/no-use-visible-task
   useVisibleTask$(({ track }) => {
     track(() => id.value);
 
     isClient.value = true;
     data.value = props.data;
   });
+  useVisibleTask$(({ track, cleanup }) => {
+    track(() => quickEditEnabled.value);
 
-  // eslint-disable-next-line qwik/no-use-visible-task
-  useVisibleTask$(({ cleanup }) => {
     if (quickEditEnabled.value) {
       const style = document.createElement("style");
       style.type = "text/css";
@@ -69,25 +68,25 @@ export function useTina<T extends object>(props: {
       document.head.appendChild(style);
       document.body.classList.add("__tina-quick-editing-enabled");
 
-      const mouseDownHandler = function (e: MouseEvent) {
-        const target = e.target as HTMLElement;
-        const attributeNames = target.getAttributeNames();
+      function mouseDownHandler(e) {
+        const attributeNames = e.target.getAttributeNames();
+        // If multiple attributes start with data-tina-field, only the first is used
         const tinaAttribute = attributeNames.find((name) =>
-          name.startsWith("data-tina-field")
+          name.startsWith("data-tina-field"),
         );
         let fieldName;
         if (tinaAttribute) {
           e.preventDefault();
           e.stopPropagation();
-          fieldName = target.getAttribute(tinaAttribute);
+          fieldName = e.target.getAttribute(tinaAttribute);
         } else {
-          const ancestor = target.closest(
-            "[data-tina-field], [data-tina-field-overlay]"
-          ) as HTMLElement | null;
+          const ancestor = e.target.closest(
+            "[data-tina-field], [data-tina-field-overlay]",
+          );
           if (ancestor) {
             const attributeNames = ancestor.getAttributeNames();
             const tinaAttribute = attributeNames.find((name) =>
-              name.startsWith("data-tina-field")
+              name.startsWith("data-tina-field"),
             );
             if (tinaAttribute) {
               e.preventDefault();
@@ -98,9 +97,9 @@ export function useTina<T extends object>(props: {
         }
         if (fieldName) {
           if (isInTinaIframe.value) {
-            window.parent.postMessage(
+            parent.postMessage(
               { type: "field:selected", fieldName: fieldName },
-              window.location.origin
+              window.location.origin,
             );
           } else {
             // if (preview?.redirect) {
@@ -112,10 +111,8 @@ export function useTina<T extends object>(props: {
             // }
           }
         }
-      };
-
+      }
       document.addEventListener("click", mouseDownHandler, true);
-
       cleanup(() => {
         document.removeEventListener("click", mouseDownHandler, true);
         document.body.classList.remove("__tina-quick-editing-enabled");
@@ -124,46 +121,53 @@ export function useTina<T extends object>(props: {
     }
   });
 
-  // eslint-disable-next-line qwik/no-use-visible-task
   useVisibleTask$(({ cleanup }) => {
-    window.parent.postMessage(
-      { type: "open", ...props, id: id.value },
-      window.location.origin
+    // const simplifiedProps = JSON.stringify({...props});
+    // const simplifiedProps = JSON.stringify(props);
+
+    //? Note there seems to be a bug with the props we are sending to the parent window
+    const clonedProps = deepClone(props);
+
+    parent.postMessage(
+      { type: "open", ...clonedProps, id: id.value },
+      window.location.origin,
     );
 
-    const messageHandler = (event: MessageEvent) => {
+    window.addEventListener("message", (event) => {
       if (event.data.type === "quickEditEnabled") {
         quickEditEnabled.value = event.data.value;
       }
+
       if (event.data.id === id.value && event.data.type === "updateData") {
         data.value = event.data.data;
         isInTinaIframe.value = true;
         // Ensure we still have a tina-field on the page
         const anyTinaField = document.querySelector("[data-tina-field]");
         if (anyTinaField) {
-          window.parent.postMessage(
+          parent.postMessage(
             { type: "quick-edit", value: true },
-            window.location.origin
+            window.location.origin,
           );
         } else {
-          window.parent.postMessage(
+          parent.postMessage(
             { type: "quick-edit", value: false },
-            window.location.origin
+            window.location.origin,
           );
         }
       }
-    };
-
-    window.addEventListener("message", messageHandler);
+    });
 
     cleanup(() => {
-      window.removeEventListener("message", messageHandler);
       window.parent.postMessage(
         { type: "close", id: id.value },
-        window.location.origin
+        window.location.origin,
       );
     });
   });
+
+  // Probably don't want to always do this on every data update,
+  // Just needs to be done once when in non-edit mode
+  // addMetadata(id, data, [])
 
   return { data, isClient };
 }
@@ -206,7 +210,7 @@ export const tinaField = <
 >(
   object: T,
   property?: keyof Omit<NonNullable<T>, "__typename" | "_sys">,
-  index?: number
+  index?: number,
 ) => {
   if (!object) {
     return "";
@@ -214,18 +218,18 @@ export const tinaField = <
   if (object._content_source) {
     if (!property) {
       return [
-        object._content_source.queryId,
+        object._content_source?.queryId,
         object._content_source.path.join("."),
       ].join("---");
     }
     if (typeof index === "number") {
       return [
-        object._content_source.queryId,
+        object._content_source?.queryId,
         [...object._content_source.path, property, index].join("."),
       ].join("---");
     }
     return [
-      object._content_source.queryId,
+      object._content_source?.queryId,
       [...object._content_source.path, property].join("."),
     ].join("---");
   }
@@ -235,7 +239,7 @@ export const tinaField = <
 export const addMetadata = <T extends object>(
   id: string,
   object: T & { type?: string; _content_source?: unknown },
-  path: (string | number)[]
+  path: (string | number)[],
 ): T | undefined => {
   Object.entries(object).forEach(([key, value]) => {
     if (Array.isArray(value)) {
