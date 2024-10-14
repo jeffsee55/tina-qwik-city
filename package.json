@@ -37,10 +37,11 @@
     "eslint": "8.57.0",
     "eslint-plugin-qwik": "^1.9.1",
     "prettier": "3.3.3",
+    "tinacms": "^2.2.9",
     "typescript": "5.4.5",
     "undici": "*",
     "vite": "5.3.5",
     "vite-tsconfig-paths": "^4.2.1",
-    "tinacms": "^2.2.9"
+    "lodash.clonedeep": "^4.5.0"
   }
 }

@@ -1,41 +1,38 @@
 import {
-  useSignal,
-  useVisibleTask$,
-  useComputed$,
-  type Signal,
+	useSignal,
+	useVisibleTask$,
+	useComputed$,
+	type Signal,
 } from "@builder.io/qwik";
+import deepClone from "lodash.clonedeep";
 
 export function useTina<T extends object>(props: {
-  query: string;
-  variables: object;
-  data: T;
+	query: string;
+	variables: object;
+	data: T;
 }): { data: Signal<T>; isClient: Signal<boolean> } {
-  const stringifiedQuery = JSON.stringify({
-    query: props.query,
-    variables: props.variables,
-  });
+	const stringifiedQuery = JSON.stringify({
+		query: props.query,
+		variables: props.variables,
+	});
+	const id = useComputed$(() => hashFromQuery(stringifiedQuery));
 
-  const id = useComputed$(() => hashFromQuery(stringifiedQuery));
+	const data = useSignal<T>(props.data);
+	const isClient = useSignal(false);
+	const quickEditEnabled = useSignal(false);
+	const isInTinaIframe = useSignal(false);
 
-  const data = useSignal<T>(props.data);
-  const isClient = useSignal(false);
-  const quickEditEnabled = useSignal(false);
-  const isInTinaIframe = useSignal(false);
+	useVisibleTask$(({ track }) => {
+		track(() => id.value);
 
-  // eslint-disable-next-line qwik/no-use-visible-task
-  useVisibleTask$(({ track }) => {
-    track(() => id.value);
-
-    isClient.value = true;
-    data.value = props.data;
-  });
-
-  // eslint-disable-next-line qwik/no-use-visible-task
-  useVisibleTask$(({ cleanup }) => {
-    if (quickEditEnabled.value) {
-      const style = document.createElement("style");
-      style.type = "text/css";
-      style.textContent = `
+		isClient.value = true;
+		data.value = props.data;
+	});
+	useVisibleTask$(({ cleanup }) => {
+		if (quickEditEnabled.value) {
+			const style = document.createElement("style");
+			style.type = "text/css";
+			style.textContent = `
         [data-tina-field] {
           outline: 2px dashed rgba(34,150,254,0.5);
           transition: box-shadow ease-out 150ms;
@@ -66,126 +63,132 @@ export function useTina<T extends object>(props: {
           opacity: 1;
         }
       `;
-      document.head.appendChild(style);
-      document.body.classList.add("__tina-quick-editing-enabled");
+			document.head.appendChild(style);
+			document.body.classList.add("__tina-quick-editing-enabled");
 
-      const mouseDownHandler = function (e: MouseEvent) {
-        const target = e.target as HTMLElement;
-        const attributeNames = target.getAttributeNames();
-        const tinaAttribute = attributeNames.find((name) =>
-          name.startsWith("data-tina-field")
-        );
-        let fieldName;
-        if (tinaAttribute) {
-          e.preventDefault();
-          e.stopPropagation();
-          fieldName = target.getAttribute(tinaAttribute);
-        } else {
-          const ancestor = target.closest(
-            "[data-tina-field], [data-tina-field-overlay]"
-          ) as HTMLElement | null;
-          if (ancestor) {
-            const attributeNames = ancestor.getAttributeNames();
-            const tinaAttribute = attributeNames.find((name) =>
-              name.startsWith("data-tina-field")
-            );
-            if (tinaAttribute) {
-              e.preventDefault();
-              e.stopPropagation();
-              fieldName = ancestor.getAttribute(tinaAttribute);
-            }
-          }
-        }
-        if (fieldName) {
-          if (isInTinaIframe.value) {
-            window.parent.postMessage(
-              { type: "field:selected", fieldName: fieldName },
-              window.location.origin
-            );
-          } else {
-            // if (preview?.redirect) {
-            //   const tinaAdminBasePath = preview.redirect.startsWith('/')
-            //     ? preview.redirect
-            //     : `/${preview.redirect}`
-            //   const tinaAdminPath = `${tinaAdminBasePath}/index.html#/~${window.location.pathname}?active-field=${fieldName}`
-            //   window.location.assign(tinaAdminPath)
-            // }
-          }
-        }
-      };
+			function mouseDownHandler(e) {                
+				const attributeNames = e.target.getAttributeNames();
+				// If multiple attributes start with data-tina-field, only the first is used
+				const tinaAttribute = attributeNames.find((name) =>
+					name.startsWith("data-tina-field"),
+				);
+				let fieldName;
+				if (tinaAttribute) {
+					e.preventDefault();
+					e.stopPropagation();
+					fieldName = e.target.getAttribute(tinaAttribute);
+				} else {
+					const ancestor = e.target.closest(
+						"[data-tina-field], [data-tina-field-overlay]",
+					);
+					if (ancestor) {
+						const attributeNames = ancestor.getAttributeNames();
+						const tinaAttribute = attributeNames.find((name) =>
+							name.startsWith("data-tina-field"),
+						);
+						if (tinaAttribute) {
+							e.preventDefault();
+							e.stopPropagation();
+							fieldName = ancestor.getAttribute(tinaAttribute);
+						}
+					}
+				}
+				if (fieldName) {
+					if (isInTinaIframe.value) {
+						parent.postMessage(
+							{ type: "field:selected", fieldName: fieldName },
+							window.location.origin,
+						);
+					} else{
+                        // if (preview?.redirect) {
+						//   const tinaAdminBasePath = preview.redirect.startsWith('/')
+						//     ? preview.redirect
+						//     : `/${preview.redirect}`
+						//   const tinaAdminPath = `${tinaAdminBasePath}/index.html#/~${window.location.pathname}?active-field=${fieldName}`
+						//   window.location.assign(tinaAdminPath)
+						// }
+                    }
+				}
+			}
+			document.addEventListener("click", mouseDownHandler, true);
 
-      document.addEventListener("click", mouseDownHandler, true);
+			cleanup(() => {
+				document.removeEventListener("click", mouseDownHandler, true);
+				document.body.classList.remove("__tina-quick-editing-enabled");
+				style.remove();
+			});
+		}
+	});
 
-      cleanup(() => {
-        document.removeEventListener("click", mouseDownHandler, true);
-        document.body.classList.remove("__tina-quick-editing-enabled");
-        style.remove();
-      });
-    }
-  });
+	useVisibleTask$(({ cleanup }) => {
+		// const simplifiedProps = JSON.stringify({...props});
+		// const simplifiedProps = JSON.stringify(props);
 
-  // eslint-disable-next-line qwik/no-use-visible-task
-  useVisibleTask$(({ cleanup }) => {
-    window.parent.postMessage(
-      { type: "open", ...props, id: id.value },
-      window.location.origin
-    );
+        //? Note there seems to be a bug with the props we are sending to the parent window
+		const clonedProps = deepClone(props);
 
-    const messageHandler = (event: MessageEvent) => {
-      if (event.data.type === "quickEditEnabled") {
-        quickEditEnabled.value = event.data.value;
-      }
-      if (event.data.id === id.value && event.data.type === "updateData") {
-        data.value = event.data.data;
-        isInTinaIframe.value = true;
-        // Ensure we still have a tina-field on the page
-        const anyTinaField = document.querySelector("[data-tina-field]");
-        if (anyTinaField) {
-          window.parent.postMessage(
-            { type: "quick-edit", value: true },
-            window.location.origin
-          );
-        } else {
-          window.parent.postMessage(
-            { type: "quick-edit", value: false },
-            window.location.origin
-          );
-        }
-      }
-    };
+		parent.postMessage(
+			{ type: "open", ...clonedProps, id: id.value },
+			window.location.origin,
+		);
 
-    window.addEventListener("message", messageHandler);
+		window.addEventListener("message", (event) => {
+			if (event.data.type === "quickEditEnabled") {
+				quickEditEnabled.value = event.data.value;
+			}
 
-    cleanup(() => {
-      window.removeEventListener("message", messageHandler);
-      window.parent.postMessage(
-        { type: "close", id: id.value },
-        window.location.origin
-      );
-    });
-  });
+			if (event.data.id === id.value && event.data.type === "updateData") {
+				data.value = event.data.data;
+				isInTinaIframe.value = true;
+				// Ensure we still have a tina-field on the page
+				const anyTinaField = document.querySelector("[data-tina-field]");
+				if (anyTinaField) {
+					parent.postMessage(
+						{ type: "quick-edit", value: true },
+						window.location.origin,
+					);
+				} else {
+					parent.postMessage(
+						{ type: "quick-edit", value: false },
+						window.location.origin,
+					);
+				}
+			}
+		});
 
-  return { data, isClient };
+		cleanup(() => {
+			window.parent.postMessage(
+				{ type: "close", id: id.value },
+				window.location.origin,
+			);
+		});
+	});
+
+	// Probably don't want to always do this on every data update,
+	// Just needs to be done once when in non-edit mode
+	// addMetadata(id, data, [])
+
+	return { data, isClient };
 }
 
 export function useEditState(): { edit: Signal<boolean> } {
-  const edit = useSignal(false);
+	const edit = useSignal(false);
 
-  // eslint-disable-next-line qwik/no-use-visible-task
-  useVisibleTask$(() => {
-    if (typeof window !== "undefined") {
-      window.parent.postMessage({ type: "isEditMode" }, window.location.origin);
-      const handleMessage = (event: MessageEvent) => {
-        if (event.data?.type === "tina:editMode") {
-          edit.value = true;
-        }
-      };
-      window.addEventListener("message", handleMessage);
-      return () => window.removeEventListener("message", handleMessage);
-    }
-  });
+	// eslint-disable-next-line qwik/no-use-visible-task
+	useVisibleTask$(() => {
+		if (typeof window !== "undefined") {
+			window.parent.postMessage({ type: "isEditMode" }, window.location.origin);
+			const handleMessage = (event: MessageEvent) => {
+				if (event.data?.type === "tina:editMode") {
+					edit.value = true;
+				}
+			};
+			window.addEventListener("message", handleMessage);
+			return () => window.removeEventListener("message", handleMessage);
+		}
+	});
 
-  return { edit };
+	return { edit };
 }
 
 /**
@@ -194,93 +197,93 @@ export function useEditState(): { edit: Signal<boolean> } {
  * is working with.
  */
 export const tinaField = <
-  T extends
-    | (object & {
-        _content_source?: {
-          queryId: string;
-          path: (number | string)[];
-        };
-      })
-    | undefined
-    | null,
+	T extends
+		| (object & {
+				_content_source?: {
+					queryId: string;
+					path: (number | string)[];
+				};
+ })
+		| undefined
+		| null,
 >(
-  object: T,
-  property?: keyof Omit<NonNullable<T>, "__typename" | "_sys">,
-  index?: number
+	object: T,
+	property?: keyof Omit<NonNullable<T>, "__typename" | "_sys">,
+	index?: number,
 ) => {
-  if (!object) {
-    return "";
-  }
-  if (object._content_source) {
-    if (!property) {
-      return [
-        object._content_source.queryId,
-        object._content_source.path.join("."),
-      ].join("---");
-    }
-    if (typeof index === "number") {
-      return [
-        object._content_source.queryId,
-        [...object._content_source.path, property, index].join("."),
-      ].join("---");
-    }
-    return [
-      object._content_source.queryId,
-      [...object._content_source.path, property].join("."),
-    ].join("---");
-  }
-  return "";
+	if (!object) {
+		return "";
+	}
+	if (object._content_source) {
+		if (!property) {
+			return [
+				object._content_source?.queryId,
+				object._content_source.path.join("."),
+			].join("---");
+		}
+		if (typeof index === "number") {
+			return [
+				object._content_source?.queryId,
+				[...object._content_source.path, property, index].join("."),
+			].join("---");
+		}
+		return [
+			object._content_source?.queryId,
+			[...object._content_source.path, property].join("."),
+		].join("---");
+	}
+	return "";
 };
 
 export const addMetadata = <T extends object>(
-  id: string,
-  object: T & { type?: string; _content_source?: unknown },
-  path: (string | number)[]
+	id: string,
+	object: T & { type?: string; _content_source?: unknown },
+	path: (string | number)[],
 ): T | undefined => {
-  Object.entries(object).forEach(([key, value]) => {
-    if (Array.isArray(value)) {
-      value.forEach((item, index) => {
-        if (isScalarOrUndefined(item)) {
-          return;
-        }
-        if (Array.isArray(item)) {
-          return; // we don't expect arrays of arrays
-        }
-        const itemObject = item as object;
-        addMetadata(id, itemObject, [...path, key, index]);
-      });
-    } else {
-      if (isScalarOrUndefined(value)) {
-        return;
-      }
-      const itemObject = value as object;
-      addMetadata(id, itemObject, [...path, key]);
-    }
-  });
-  // This is a rich-text field object
-  if (object.type === "root") {
-    return;
-  }
+	Object.entries(object).forEach(([key, value]) => {
+		if (Array.isArray(value)) {
+			value.forEach((item, index) => {
+				if (isScalarOrUndefined(item)) {
+					return;
+				}
+				if (Array.isArray(item)) {
+					return; // we don't expect arrays of arrays
+				}
+				const itemObject = item as object;
+				addMetadata(id, itemObject, [...path, key, index]);
+			});
+		} else {
+			if (isScalarOrUndefined(value)) {
+				return;
+			}
+			const itemObject = value as object;
+			addMetadata(id, itemObject, [...path, key]);
+		}
+	});
+	// This is a rich-text field object
+	if (object.type === "root") {
+		return;
+	}
 
-  object._content_source = {
-    queryId: id,
-    path,
-  };
-  return object;
+	object._content_source = {
+		queryId: id,
+		path,
+	};
+	return object;
 };
 function isScalarOrUndefined(value: unknown) {
-  const type = typeof value;
-  if (type === "string") return true;
-  if (type === "number") return true;
-  if (type === "boolean") return true;
-  if (type === "undefined") return true;
+	const type = typeof value;
+	if (type === "string") return true;
+	if (type === "number") return true;
+	if (type === "boolean") return true;
+	if (type === "undefined") return true;
 
-  if (value == null) return true;
-  if (value instanceof String) return true;
-  if (value instanceof Number) return true;
-  if (value instanceof Boolean) return true;
+	if (value == null) return true;
+	if (value instanceof String) return true;
+	if (value instanceof Number) return true;
+	if (value instanceof Boolean) return true;
 
-  return false;
+	return false;
 }
 
 /**
@@ -290,12 +293,12 @@ function isScalarOrUndefined(value: unknown) {
  * like it'd be rare.
  */
 export const hashFromQuery = (input: string) => {
-  let hash = 0;
-  for (let i = 0; i < input.length; i++) {
-    const char = input.charCodeAt(i);
-    hash = ((hash << 5) - hash + char) & 0xffffffff; // Apply bitwise AND to ensure non-negative value
-  }
-  const nonNegativeHash = Math.abs(hash);
-  const alphanumericHash = nonNegativeHash.toString(36);
-  return alphanumericHash;
+	let hash = 0;
+	for (let i = 0; i < input.length; i++) {
+		const char = input.charCodeAt(i);
+		hash = ((hash << 5) - hash + char) & 0xffffffff; // Apply bitwise AND to ensure non-negative value
+	}
+	const nonNegativeHash = Math.abs(hash);
+	const alphanumericHash = nonNegativeHash.toString(36);
+	return alphanumericHash;
 };
