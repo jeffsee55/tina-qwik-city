@@ -28,7 +28,9 @@ export function useTina<T extends object>(props: {
     isClient.value = true;
     data.value = props.data;
   });
-  useVisibleTask$(({ cleanup }) => {
+  useVisibleTask$(({ track, cleanup }) => {
+    track(() => quickEditEnabled.value);
+
     if (quickEditEnabled.value) {
       const style = document.createElement("style");
       style.type = "text/css";
@@ -111,7 +113,6 @@ export function useTina<T extends object>(props: {
         }
       }
       document.addEventListener("click", mouseDownHandler, true);
-
       cleanup(() => {
         document.removeEventListener("click", mouseDownHandler, true);
         document.body.classList.remove("__tina-quick-editing-enabled");
