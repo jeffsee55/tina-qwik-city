@@ -21,10 +21,11 @@ export default component$(() => {
       <h1 data-tina-field={tinaField(data.value.post, "title")}>
         {data.value.post.title}
       </h1>
-      <div data-tina-field={tinaField(data.value.post, "posted")}>{data.value.post.posted}</div>
-      <div >
-
-      <pre >{JSON.stringify(data.value.post.body, null, 2)}</pre>
+      <div data-tina-field={tinaField(data.value.post, "posted")}>
+        {data.value.post.posted}
+      </div>
+      <div>
+        <pre>{JSON.stringify(data.value.post.body, null, 2)}</pre>
       </div>
     </>
   );
